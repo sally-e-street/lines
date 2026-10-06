@@ -1,0 +1,38 @@
+packages<-c("imager", "tools") # packages needed
+
+to_install<-packages[!(packages %in% installed.packages()[,"Package"])] # check if packages need to be installed
+
+if(length(to_install>0)) {install.packages(to_install)} # install if necessary
+
+rLineTrace <- function(image, logfile=TRUE){ # function requires two arguments: image = filepath to image, logfile = whether logfile should be written (defaults to TRUE, file written to working directory) 
+	
+	plot(imager::load.image(image)) # plot the image
+	
+	line_coords<-vector(mode="list") # set up empty vector (list) for line coordinates
+	
+	i<-1 # starting iteration (line 1)
+	
+	print("Click on the start and end points of each line") # user instructions
+	
+	repeat { # start repeat loop until break statement (trace lines until a given user input - X)	
+			
+		line_coords[[i]]<-locator(n=2, type="o", col="green") # coordinates of start and end points for line i
+		
+		morelines<-readline(prompt="Press enter to trace another line, or X when you are finished: ") # prompt for users to enter more lines or finish
+		
+		if(morelines=="") {i<-i+1} # if users press enter, advance to next line
+		
+			else if (morelines=="X") {break} # else if users type X, break the loop
+			
+	} # end line trace loop				
+	
+	line_coords_df<-as.data.frame(matrix(unlist(line_coords), nrow=length(line_coords), ncol=4, byrow=T)) # convert results to df
+	colnames(line_coords_df)<-c("x1", "x2", "y1", "y2") # rename columns
+	
+	if(logfile==TRUE){ # write results to csv
+		write.csv(line_coords_df, file=paste("line_coords", tools::file_path_sans_ext(basename(image)), ".csv", sep="_"), row.names=F)
+	}
+		
+	return(line_coords_df)
+	
+}
