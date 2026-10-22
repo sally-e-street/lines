@@ -1,0 +1,433 @@
+### install and load packages ###
+
+# list required packages
+packages<-c("entropy", "sf", "TDAstats", "spatstat") 
+to_install<-packages[!(packages %in% installed.packages()[,"Package"])] 
+
+# install packages if necessary
+install.packages(to_install)
+
+# load required packages
+invisible(lapply(X=packages, FUN=library, character.only=TRUE)) 
+
+
+### feature extraction function ###
+rLineFeatures<-function(coords, n_bins=10){ # function takes a df containing coordinates for start and end points for a line set, with four columns (x1, x2, y1, y2), plus user defined number of bins for entropy calculations (defaults to 10) 
+	
+# check that coords file is in the appropriate format, stop if not
+columns <- c("x1", "x2", "y1", "y2")
+if (!all(columns==colnames(coords)))
+  stop("coords must contain columns titled x1, x2, y1 and y2")
+  
+  
+### geometric functions ###
+
+# measure line length with Pythagoras' theorem 
+pyth_length<-function(v){ # v = vector with four coordinates: x1, x2, y1 and y2
+	sqrt((v[2]-v[1])^2+(v[4]-v[3])^2)
+}
+
+coords2length<-function(coords){ # coords = a df containing coordinates for start and end points for a line set with 4 columns: x1, x2, y1 and y2
+	
+	# calculate line length from start and end coordinates using Pythagoras's theorem
+	apply(coords, MARGIN=1, FUN=pyth_length) 
+	
+}
+
+# get line midpoints
+coords2midpoints<-function(coords){
+	cbind((coords$x1 + coords$x2)/2,(coords$y1 + coords$y2)/2)
+}
+
+# measure distances between neighbouring lines (based on line midpoints)
+coords2distance<-function(coords){ 
+	
+	# get midpoints
+	midpoints<-coords2midpoints(coords) 
+	colnames(midpoints)<-c("x", "y")
+
+	# calculate Euclidean pairwise distances
+	distances <- as.matrix(dist(midpoints[, c("x", "y")]))
+
+	# remove diagonals
+	diag(distances)<-NA 
+
+	# find each line's nearest neighbour (i.e. for each row/line, find the pair with the minimum distance)
+	neighbours<-apply(X=distances, MARGIN=1, FUN=which.min) 
+
+	# remove duplicate pairs - first sort pairs, removing directionality (so e.g. 1,2 and 2,1 both become 1,2)
+	pairs <- t(mapply(function(i, j) {sort(c(i, j))}, seq_along(neighbours), neighbours)) 
+	unique_pairs<-unique(pairs) 
+
+	# retrieve minimum distances from the distance matrix for each unique pair
+	min_distances <- apply(unique_pairs, MARGIN=1, function(x){distances[x[1], x[2]]}) 
+
+return(min_distances) # return the shortest distance for unique pair
+
+}
+
+# calculate line angles relative to horizontal
+coords2angle <- function(coords) {
+
+  # calculate differences in x and y start/end points
+  dx <- coords$x2 - coords$x1
+  dy <- coords$y2 - coords$y1
+
+  # calculate absolute angles relative to horizontal (converting from radians to degrees)
+  angles <- atan2(abs(dy), abs(dx)) * 180/pi
+
+  return(angles)
+
+}
+
+# calculate acute angles between each (unique) pair of neighbouring lines
+twolineangle<-function(line1, line2){
+	
+	# angle in radians for lines 1 and 2 (retaining direction for now)
+	line1angle <- atan2(line1$y2-line1$y1, line1$x2-line1$x1) 
+	line2angle <- atan2(line2$y2-line2$y1, line2$x2-line2$x1) 
+	
+	# angle at intersection in radians
+	angle_intersect_rads <- abs(line1angle - line2angle) 
+	
+	# angle at intersection in degrees (0-360)
+	angle_intersect_degrees <- angle_intersect_rads * 180 / pi 
+	
+	# ensure we are taking the smallest angle (<180 degrees)
+	if (angle_intersect_degrees > 180)
+    	angle_intersect_degrees <- 360 - angle_intersect_degrees
+
+	# ensure we are taking the acute angle (<90 degrees)
+	if (angle_intersect_degrees > 90)
+    	angle_intersect_degrees <- 180 - angle_intersect_degrees
+	
+	return(angle_intersect_degrees)
+	
+}
+
+coords2angle2<-function(coords){
+	
+	# get midpoints
+	midpoints<-coords2midpoints(coords) 
+	colnames(midpoints)<-c("x", "y")
+
+	# calculate Euclidean pairwise distances
+	distances <- as.matrix(dist(midpoints[, c("x", "y")]))
+
+	# remove diagonals
+	diag(distances)<-NA 
+
+	# find each line's nearest neighbour (i.e. for each row/line, find the pair with the minimum distance)
+	neighbours<-apply(X=distances, MARGIN=1, FUN=which.min) 
+
+	# remove duplicate pairs - first sort pairs, removing directionality (so e.g. 1,2 and 2,1 both become 1,2)
+	pairs <- t(mapply(function(i, j) {sort(c(i, j))}, seq_along(neighbours), neighbours)) 
+	unique_pairs<-unique(pairs) 
+
+	# find angles for each unique pair
+	pair_angles<-NA
+	
+	for (i in 1:nrow(unique_pairs)){ # for each pair
+		pair_angles[i]<-twolineangle(coords[unique_pairs[i,][1],], coords[unique_pairs[i,][2],])
+	}
+
+	return(pair_angles)	
+}
+
+
+# count number of crossings
+coords2crossings<-function(coords){ 
+	
+	# convert lines to st linestring format
+	sf_lines<-lapply(seq_len(nrow(coords)), function(x){st_linestring(matrix(unlist(coords[x,]), nrow=2, ncol=2))}) 
+	
+	# create simple feature geometry list column
+	st_sfc_lines<-st_sfc(sf_lines)
+	
+	# checks if each line crosses another in the set
+	crosses<-st_crosses(st_sfc_lines)
+	
+	# checks if each line touches another in the set
+	touches<-st_touches(st_sfc_lines)
+	
+	# return the total number of crossing and touching line pairs (divded by 2 because each crossing is reported twice, once for each line)
+	return((sum(lengths(crosses))+sum(lengths(touches)))/2)
+	
+}
+
+# TDA (persistence entropy h0) 
+TDA<-function(coords){
+
+  	# get line midpoints
+	midpoints<-coords2midpoints(coords) 
+	colnames(midpoints)<-c("x", "y")
+
+	# persistence entropy function
+	persistence_entropy_h0 <- function(ph) { # ph = persistance homology
+		
+		# select rows of ph that contain information about the chosen dimension(s). drop = FALSE avoids R simplifying to a vector if only one row selected. Here we are only interested in dimension 0 (connections)
+  		features <- ph[ph[, "dimension"] == 0, , drop = FALSE] 
+  		
+  		# calculate persistence
+  		persistences <- features[, "death"] - features[, "birth"] 
+ 
+ 		# select only finite/non-zero persistences (i.e. excluding the one persistence that never disappears)
+  		persistences <- persistences[is.finite(persistences) & persistences > 0] 
+
+		# turn persistences into proportions (Shannon entropy assumes values = a probability distribution and sum to 1), if there are at least 2 valid persistences, normalised by log n persistences to allow for comparison between images
+		if (length(persistences)<2){
+			
+			pe<-NA
+		
+		} else{
+			
+			pe<-entropy(persistences, method="ML")/log(length(persistences))
+		
+		}
+		
+		# return results
+		return(pe)
+	}
+
+	# get persistence entropy for a given line set
+	compute_tda_stats <- function(midpoints) {
+		
+		# get maximum distance between points
+		max_distance<-max(dist(midpoints, method="euclidean"))
+		
+		# get search radius (max distance * small constant to ensure search radius is large enough that all points are joined to form a single feature at some point)
+		radius<-max_distance*1.1
+		
+		# calculate persistence homology
+		ph<-as.data.frame(calculate_homology(midpoints, dim=0, threshold=radius))
+		
+		# calculate persistence entropy h0
+		peh0<-persistence_entropy_h0(ph)
+		
+		# return results
+		return(peh0)
+
+	}
+
+# return results
+results<-compute_tda_stats(midpoints)
+return(results)
+
+}
+
+### spatial organisation functions ###
+
+# spatial correlation
+coords2SC<-function(coords, n_bins){ # n bins set by user
+
+  	# calculate angles in radians, retaining orientation information (i.e. equivalent to range 0-180 degrees) 
+  	dx <- coords$x2 - coords$x1
+  	dy <- coords$y2 - coords$y1
+  	angles<-atan2(dy, dx)
+
+  	# get line midpoints
+	midpoints<-coords2midpoints(coords) 
+	colnames(midpoints)<-c("x", "y")
+	
+	# function to compute binned correlation function C(r)
+	binned_Cr <- function(midpoints, angles, n_bins) {
+
+		# calculate Euclidean pairwise distances
+		distances <- as.matrix(dist(midpoints[, c("x", "y")]))
+
+		# calculate cosine similarity between all angle pairs, varies from -1 to 1 where -1 = perpendicular and 1 = parallel
+  		angle_similarities <- outer(X=angles, Y=angles, FUN=function(a, b) cos(2 * (a - b)))
+  		
+  		# extract angle similarities for unique line pairs
+  		lower_dm <- lower.tri(distances)
+  		unique_distances <- distances[lower_dm]
+  		unique_similarities <- angle_similarities[lower_dm]
+  		
+  		# correlation of angle similarity and distance
+  		corr_angle_dist<-cor(unique_distances, unique_similarities, method="spearman")
+  		
+  		# set up bins
+  		max_distance <- max(unique_distances) # maximum of range
+  		norm_distances<-unique_distances/max_distance # normalise distances for comparability between images		
+  		breaks <- seq(0, 1, length.out = n_bins + 1) # break points (equally spaced from 0-1 which is normalised distance range)
+  		bin_id <- cut(norm_distances, breaks = breaks, include.lowest = TRUE, labels = FALSE) # assign distances to bins
+		bin_mid <- (breaks[-1] + breaks[-length(breaks)]) / 2 # identify bin mid points
+  		
+  		# angle similarities binned by distance
+		bin_no<-1:n_bins # bin sequence
+		bins <- factor(bin_id, levels = seq_len(n_bins))
+		C_r <- tapply(X=unique_similarities, INDEX=bins, FUN=mean) # mean similarity per bin
+		n_pairs <- tabulate(bin_id, nbins = n_bins) # n pairs per bin (including zeros)
+		corr_df <- data.frame(bin_no,bin_mid,C_r = as.numeric(C_r),n_pairs = as.integer(n_pairs))
+
+		# return results
+		results<-list(corr_df, corr_angle_dist)
+		names(results)<-c("corr_df", "corr_angle_dist")
+		return(results)
+	}
+	
+# apply binned correlation function
+Cr_binned<-binned_Cr(midpoints, angles, n_bins) 
+
+# calculate entropy 
+Cr_finite<-Cr_binned$corr_df$C_r[is.finite(Cr_binned$corr_df$C_r)] # extract correlations, excluding any NAs
+n_valid_bins<-length(Cr_finite) # number of bins excluding NAs
+weights<-Cr_finite^2 # squared correlation weights - avoids negative values
+
+if (n_valid_bins>=2 && sum(weights)>0){ # check if there are at least 2 valid bins, and sum weights is more than zero - this is necessary to avoid dividing by zero in the entropy calculation
+	
+	sce<-entropy(weights, method="ML")/log(n_valid_bins) # divide by ln(k) to normalise Shannon entropy from 0 to 1, in case number of valid bins varies
+	
+} else {
+	
+	sce<-NA # return NA
+	
+}
+
+results<-list(sce, Cr_binned$corr_angle_dist)
+names(results)<-c("sce", "corr_angle_dist")
+return(results) # return results
+
+}
+
+
+# PPP (AUPC = regularity, AOPC = clustering, adapted from Courteney et al. 2025)
+PPP<-function(coords){
+	
+  	# get line midpoints
+	midpoints<-coords2midpoints(coords) 
+	colnames(midpoints)<-c("x", "y")
+
+	# define the spatial window (convex hull encompassing all start/end points)
+	hull_coords<-coords # create a copy of coordinates to make the convex hull
+	colnames(hull_coords)<-c("x", "x", "y", "y") # change the column names to allow rbind to work (reformat to 2 col matrix)
+	hull_coords_combined<-rbind(hull_coords[,c(1,3)], hull_coords[,c(2,4)]) # reformat hull coords	
+	conv_hull<-rev(chull(hull_coords_combined)) # get convex hull, in anticlockwise order (required by owin function further on)
+	hull_edge_coords<-hull_coords_combined[conv_hull,] # get coords of hull edge
+	
+	# create the point pattern object
+	spatial_window <- owin(poly=list(x= hull_edge_coords[,1], y= hull_edge_coords[,2])) # convert spatial window to class 'owin' (observation window)
+	spatial_window_buffered<-dilation(w=spatial_window, r=max(0.01*dist(midpoints, method="euclidean"))) # add a 1% dilation to avoid mid points falling exactly on the edge of the spatial window and being dropped from the analysis
+	ppo<-ppp(x=midpoints[,1], y=midpoints[,2], window=spatial_window_buffered) # create the point pattern object
+	
+	# calculate max distance (for standardisation purposes)
+	max_distance<-max(dist(midpoints, method="euclidean"))
+	
+	# Besag's L(r) with isotropic edge correction and default distance range
+	BesagL<-Lest(ppo, correction="isotropic")
+	
+	# AUPC (regularity) / AOPC (clustering)
+	summarise_L_function <- function(BesagL) { 
+		
+		# extract components from the point pattern object
+		r<-BesagL$r # distance at which L(r) evaluated
+		theoretical<-BesagL$theo # theoretical expectation (CSR)
+		empirical<-BesagL$iso # empirical estimation using iso edge correction
+
+		# remove missing/infinite values (essential so that r, theoretical and empirical components remain aligned)
+		keep <- is.finite(r) & is.finite(theoretical) & is.finite(empirical)
+  		r <- r[keep]
+  		theoretical <- theoretical[keep]
+  		empirical <- empirical[keep]
+
+		# sort observations by increasing r
+  		ord <- order(r)
+		r <- r[ord]
+  		theoretical <- theoretical[ord]
+  		empirical <- empirical[ord]
+  		
+  		# calculate deviation from CSR (standardised by max distance to avoid scaling effects)
+  		deviation <- (empirical - theoretical)/max_distance
+
+		# rescale r from 0 to 1 (again to avoid scaling effects
+		r_range <- diff(range(r))
+		r_scaled <- (r - min(r)) / r_range
+		
+		# separate positive (clustering) and negative deviations (regularity)
+		clustering <- pmax(deviation, 0)
+		regularity <- pmax(-deviation, 0)
+		
+		# calculate AOPC (clustering)
+		area_over_poisson <- sum(diff(r_scaled) * (clustering[-1] + clustering[-length(clustering)])/2)
+
+		# calculate AUPC (regularity)
+		area_under_poisson <- sum(diff(r_scaled) * (regularity[-1] + regularity[-length(regularity)])/2)
+
+		results<-list(area_over_poisson, area_under_poisson)
+		names(results)<-c("AOPC", "AUPC")
+		return(results)
+
+	}
+
+results<-summarise_L_function(BesagL)
+return(results)
+	
+}
+
+### summary statistics ###
+
+# n lines
+n_lines<-nrow(coords) # number of lines
+	
+# line length CV
+lengths<-coords2length(coords) 
+cv_lengths<-sd(lengths)/mean(lengths) 
+
+# line length entropy standardised by max possible length (max distance between convex hull based on line start and end points)
+hull_coords<-coords # create a copy of coordinates to make the convex hull
+colnames(hull_coords)<-c("x", "x", "y", "y") # change the column names to allow rbind to work (reformat to 2 col matrix)
+hull_coords_combined<-rbind(hull_coords[,c(1,3)], hull_coords[,c(2,4)]) # reformat hull coords	
+conv_hull<-chull(hull_coords_combined) # get convex hull	
+hull_edge_coords<-hull_coords_combined[conv_hull,] # get coords of hull edge
+max_length<-max(dist(hull_edge_coords, method="euclidean")) # get max distance
+se_lengths<-entropy(discretize(lengths, numBins=n_bins, range(0, max_length)), method="ML")
+	
+# line distance CV
+distances<-coords2distance(coords) # line distances
+cv_distances<-sd(distances)/mean(distances) # CV line distances
+
+# line distance entropy
+se_distances<-entropy(discretize(distances, numBins=n_bins, range(0, max_length)), method="ML")
+
+# angle SD (relative to horizontal)
+angles<-coords2angle(coords) 
+sd_angles<-sd(angles) 
+
+# angle entropy (relative to horizontal)
+se_angles<-entropy(discretize(angles, numBins=n_bins, range(0, 90)), method="ML")
+	
+# neighbouring angle SD
+pair_angles<-coords2angle2(coords) 
+sd_pair_angles<-sd(pair_angles)
+
+# neighbouring angle entropy
+se_pair_angles<-entropy(discretize(pair_angles, numBins=n_bins, range(0, 90)))
+
+# TDA entropy h0
+TDA_entropyh0<-TDA(coords)
+	
+# spatial correlation coefficient
+SC_results<-coords2SC(coords, n_bins)
+spatial_cor<-SC_results$corr_angle_dist
+
+# spatial correlation entropy
+spatial_cor_entropy<-SC_results$sce
+
+# AOPC (clustering)
+PPP_results<-PPP(coords)
+AOPC<-PPP_results$AOPC
+
+# AUPC (regularity)	
+AUPC<-PPP_results$AUPC
+
+# n line crossings
+n_crossings<-coords2crossings(coords)
+
+# combine measures into vector of results
+results<-c(n_lines, cv_lengths, se_lengths, cv_distances, se_distances, sd_angles, se_angles, sd_pair_angles, se_pair_angles, spatial_cor, spatial_cor_entropy, TDA_entropyh0, AUPC, AOPC, n_crossings)
+	
+names(results)<-c("n_lines", "cv_lengths", "se_lengths", "cv_distances", "se_distances", "sd_angles", "se_angles", "sd_pair_angles", "se_pair_angles", "spatial_cor", "spatial_cor_entropy", "TDA_entropyh0", "AUPC", "AOPC", "n_crossings")
+	
+return(results)	
+	
+}
