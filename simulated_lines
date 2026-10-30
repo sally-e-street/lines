@@ -1,1 +1,35 @@
+rLineSim<-function(n, n_lines, logfile=TRUE){ # n=number of line sets to simulate, n_lines=vector of number of lines per line set to sample from, logfile=set whether a CSV file containing line coordinates should be written to the working directory
+	
+	results<-vector(mode="list", length=n) # set up empty list for the resulting coordinates
+	
+	for (i in 1:n) { # for a specified number of line sets
+		
+		# create plotting window of random width and length (max 10-100 for each axis)
+		random_xlim_max<-runif(n=1, min=10, max=100)
+		random_ylim_max<-runif(n=1, min=10, max=100)
+
+		# select number of lines for the line set, randomly drawn from vector of n_lines
+		random_n_lines<-sample(x=n_lines, size=1) 
+
+		# create coordinates file
+		sim_coords<-as.data.frame(matrix(data=NA, nrow=random_n_lines, ncol=4))
+		colnames(sim_coords)<-c("x1", "x2", "y1", "y2")
+		sim_coords$x1<-runif(n=nrow(sim_coords), min=0, max=random_xlim_max)
+		sim_coords$x2<-runif(n=nrow(sim_coords), min=0, max=random_xlim_max)
+		sim_coords$y1<-runif(n=nrow(sim_coords), min=0, max=random_ylim_max)
+		sim_coords$y2<-runif(n=nrow(sim_coords), min=0, max=random_ylim_max)
+		
+		if(logfile==TRUE){ # write a CSV file containing coordinates of line set i to the working directory
+			
+		write.csv(sim_coords, file=paste("line_coords", "S", i, ".csv", sep="_"), row.names=F)
+	
+		}
+		
+		results[[i]]<-sim_coords # add coordinates to the results list
+		
+	}
+	
+	return(results) # return the results
+	
+}
 
