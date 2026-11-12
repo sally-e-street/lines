@@ -1,23 +1,66 @@
-rLineSim<-function(n, n_lines, logfile=TRUE){ # n=number of line sets to simulate, n_lines=vector of number of lines per line set to sample from, logfile=set whether a CSV file containing line coordinates should be written to the working directory
-	
-	results<-vector(mode="list", length=n) # set up empty list for the resulting coordinates
-	
-	for (i in 1:n) { # for a specified number of line sets
-		
-		# create plotting window of random width and length (max 10-100 for each axis)
-		random_xlim_max<-runif(n=1, min=10, max=100)
-		random_ylim_max<-runif(n=1, min=10, max=100)
+# list required packages
+packages<-c("geometry") 
+to_install<-packages[!(packages %in% installed.packages()[,"Package"])] 
 
-		# select number of lines for the line set, randomly drawn from vector of n_lines
-		random_n_lines<-sample(x=n_lines, size=1) 
+# install packages if necessary
+install.packages(to_install)
+
+# load required packages
+invisible(lapply(X=packages, FUN=library, character.only=TRUE)) 
+
+rLineSim<-function(n, n_lines, hulls, logfile=TRUE){ # n=number of line sets to simulate, n_lines=vector of number of lines per line set to sample from, hulls=list of convex hulls to sample from as bounding regions, logfile=set whether a CSV file containing line coordinates should be written to the working directory
+	
+		# select sample of n random convex hulls as plotting windows (without replacement)
+		random_hulls<-sample(hulls, size=n, replace=FALSE)	
+		
+		# select sample of n n_lines (without replacement)
+		random_n_lines<-sample(n_lines, size=n, replace=FALSE) 
+
+		# set up empty list for the resulting coordinates
+		results<-vector(mode="list", length=n) 
+	
+	# start for loop from 1 to n (number of line sets to simulate)
+	for (i in 1:n) { 
+		
+		# select hull i
+		hull<-random_hulls[[i]]
+		
+		# get the bounding box of hull i to create initial sampling window
+		xlim <- range(random_hulls[[i]]$x)
+		ylim <- range(random_hulls[[i]]$y)
+		
+		# convert hull to convhulln format used by geometry package
+    		hull_geo <- geometry::convhulln(as.matrix(hull), output.options = TRUE)
+
+		# simulate a set of coordinates (2 per line)
+		points <- cbind(
+      		x = runif(2 * random_n_lines[i], min = xlim[1], max = xlim[2]),
+      		y = runif(2 * random_n_lines[i], min = ylim[1], max = ylim[2]))
+      		
+      	# check which points are inside convex hull
+   		inside <- geometry::inhulln(hull_geo, points)
+   		
+   		# start while loop to resimulate any points outside the hull until all are inside
+    		while (any(!inside)) {
+
+      		# identify points outside hull
+      		outside <- which(!inside)
+
+      		# resimulate only those points
+      		points[outside, "x"] <- runif(length(outside), min = xlim[1], max = xlim[2])
+			points[outside, "y"] <- runif(length(outside), min = ylim[1], max = ylim[2])
+
+      		# recheck resimulated points
+      		inside[outside] <- geometry::inhulln(hull_geo, points[outside, , drop = FALSE])
+    }
 
 		# create coordinates file
-		sim_coords<-as.data.frame(matrix(data=NA, nrow=random_n_lines, ncol=4))
-		colnames(sim_coords)<-c("x1", "x2", "y1", "y2")
-		sim_coords$x1<-runif(n=nrow(sim_coords), min=0, max=random_xlim_max)
-		sim_coords$x2<-runif(n=nrow(sim_coords), min=0, max=random_xlim_max)
-		sim_coords$y1<-runif(n=nrow(sim_coords), min=0, max=random_ylim_max)
-		sim_coords$y2<-runif(n=nrow(sim_coords), min=0, max=random_ylim_max)
+	    sim_coords <- data.frame(
+      		x1 = points[seq_len(random_n_lines[i]), "x"], 
+      		x2 = points[random_n_lines[i] + seq_len(random_n_lines[i]), "x"],
+      		y1 = points[seq_len(random_n_lines[i]), "y"],
+      		y2 = points[random_n_lines[i] + seq_len(random_n_lines[i]), "y"]
+    			)
 		
 		if(logfile==TRUE){ # write a CSV file containing coordinates of line set i to the working directory
 			
@@ -32,4 +75,3 @@ rLineSim<-function(n, n_lines, logfile=TRUE){ # n=number of line sets to simulat
 	return(results) # return the results
 	
 }
-
