@@ -14,6 +14,8 @@ image_metadata.csv - this file contains metadata for the n=162 images selected f
 
 **SS_coords** folder contains coordinates of n=162 line sets manually traced by the first author (SS), plus n=50 simulated line sets (n=212 total). Coordinates for each line set are stored in separate CSV files, in which each row represents a single line, with four columns: 'x1' = x coordinate of line start point, 'x2' = x coordinate of line end point, 'y1'= y coordinate of line start point, 'y2' = y coordinate of line end point.
 
-**SS_coords2** folder contains coordinates of n=30 line sets manually re-traced by the first author (SS) to check for intra-rater reliability - formatted as above.
+**SS_coords2** folder contains coordinates of n=30 line sets manually re-traced by the first author (SS) to check for intra-rater reliability - formatted as for the SS_coords folder.
+
+**SB_photo_coords** folder contains coordinates of n=26 line sets for images from the SignBase dataset where photos (of sufficient quality) are also available for comparison with drawings - formatted as for the SS_coords folder.
 
 data_preparation.R - annotated R script demonstrating how coordinate data were prepared for analysis (not fully reproducible).
