@@ -18,4 +18,6 @@ image_metadata.csv - this file contains metadata for the n=162 images selected f
 
 **SB_photo_coords** folder contains coordinates of n=26 line sets for images from the SignBase dataset where photos (of sufficient quality) are also available for comparison with drawings - formatted as for the SS_coords folder.
 
+**SE_coords** folder contains coordinates of n=30 line sets manually re-traced by co-author (SE) to check for inter-rater reliability - formatted as for the SS_coords folder.
+
 data_preparation.R - annotated R script demonstrating how coordinate data were prepared for analysis (not fully reproducible).
