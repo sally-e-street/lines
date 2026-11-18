@@ -20,4 +20,6 @@ image_metadata.csv - this file contains metadata for the n=162 images selected f
 
 **SE_coords** folder contains coordinates of n=30 line sets manually re-traced by co-author (SE) to check for inter-rater reliability - formatted as for the SS_coords folder.
 
+**GPT_coords** folder contains coordinates of n=28 line sets automatically traced by ChatGPT6 after extensive training. 2 of the original sample of 30 images had to be excluded due to persistently poor quality tracings. Formatted as for the SS_coords folder.
+
 data_preparation.R - annotated R script demonstrating how coordinate data were prepared for analysis (not fully reproducible).
