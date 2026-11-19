@@ -22,4 +22,10 @@ image_metadata.csv - this file contains metadata for the n=162 images selected f
 
 **GPT_coords** folder contains coordinates of n=28 line sets automatically traced by ChatGPT6 after extensive training. 2 of the original sample of 30 images had to be excluded due to persistently poor quality tracings. Formatted as for the SS_coords folder.
 
-data_preparation.R - annotated R script demonstrating how coordinate data were prepared for analysis (not fully reproducible).
+**data_preparation.R** - annotated R script demonstrating how coordinate data were prepared for analysis (not fully reproducible).
+
+**features** - annotated R script containing functions for extracting geometric and spatial features from line coordinates.
+
+**simulated_lines** - annotated R script containing function for simulating line sets.
+
+**tracing** - annotated R script containing function for manually tracing lines from images.
